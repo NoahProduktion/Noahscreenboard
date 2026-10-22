@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Noahwords - Rätsel Generator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html2pdf.js for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        /* Präzises DIN A4 Querformat in Pixeln (96 DPI) */
+        .page-a4-landscape {
+            width: 1123px;
+            height: 794px;
+            background: white;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        /* Styling für Kreuzworträtsel & Suchsel Zelle */
+        .grid-cell {
+            width: 32px;
+            height: 32px;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        /* Kräftige Rahmen */
+        .cw-cell-active {
+            border: 2.5px solid #000000;
+            background-color: #ffffff;
+            border-radius: 4px;
+        }
+
+        /* Container für Richtungsnummern oben links im Kästchen */
+        .cw-num-container {
+            position: absolute;
+            top: 1px;
+            left: 2px;
+            display: flex;
+            flex-direction: column;
+            gap: 0px;
+            line-height: 1;
+            user-select: none;
+            z-index: 2;
+        }
+
+        /* Nummer mit Dreieck/Kerbe */
+        .cw-num-item {
+            font-size: 8px;
+            font-weight: 800;
+            color: #000000;
+            display: flex;
+            align-items: center;
+            gap: 1.5px;
+        }
+
+        .cw-arrow-triangle {
+            font-size: 6px;
+            color: #000000;
+            display: inline-block;
+            font-family: Arial, sans-serif;
+            line-height: 1;
+        }
+
+        /* Lösungswort-Marker */
+        .cw-sol-num {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            width: 12px;
+            height: 12px;
+            border-radius: 9999px;
+            background-color: #0284c7;
+            color: #ffffff;
+            font-size: 7.5px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            user-select: none;
+        }
+
+        /* Standard-Buchstaben (normal, nicht fett) */
+        .cell-letter {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            font-size: 15px;
+            font-weight: 500;
+            color: #000000;
+            text-transform: uppercase;
+        }
+
+        /* Suchsel Lösungshervorhebung: leicht grau hinterlegt und fettgedruckt */
+        .search-found-solution {
+            font-weight: 900 !important;
+            color: #000000 !important;
+            background-color: #e2e8f0 !important;
+            border-radius: 3px;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800 h-screen flex flex-col overflow-hidden relative">
+
+    <!-- Top Navbar -->
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-10 shrink-0 shadow-sm">
+        <div class="flex items-center space-x-4">
+            <img src="Kreuzworträtsel.jpg" alt="Logo" onclick="openNavModal()" class="h-8 w-8 object-cover rounded cursor-pointer hover:opacity-80 transition transform hover:scale-105" title="Zurückkehren">
+            <span class="font-bold text-xl text-gray-900 tracking-tight">Noahwords</span>
+
+            <!-- Mode Switcher (Kreuzworträtsel vs. Suchsel) -->
+            <div class="flex items-center bg-gray-100 p-1 rounded-lg text-xs font-semibold text-gray-600 border border-gray-200 ml-4">
+                <button id="mode-crossword-btn" onclick="setAppMode('crossword')" class="px-3 py-1 rounded-md bg-white shadow-sm text-gray-900 transition">Kreuzworträtsel</button>
+                <button id="mode-wordsearch-btn" onclick="setAppMode('wordsearch')" class="px-3 py-1 rounded-md hover:text-gray-900 transition">Suchsel</button>
+            </div>
+        </div>
+        
+        <div class="flex items-center space-x-3">
+            <div class="bg-gray-100 p-1 rounded-lg flex text-xs font-medium text-gray-600">
+                <button id="view-puzzle-btn" onclick="setViewMode('puzzle')" class="px-3 py-1.5 rounded-md bg-white shadow-sm text-gray-900 transition">Rätselansicht</button>
+                <button id="view-solution-btn" onclick="setViewMode('solution')" class="px-3 py-1.5 rounded-md hover:text-gray-900 transition">Lösungsansicht</button>
+            </div>
+            <button onclick="exportPDF('puzzle')" class="bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Rätsel PDF
+            </button>
+            <button onclick="exportPDF('solution')" class="bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Lösungs PDF
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <div class="flex flex-1 overflow-hidden">
+        
+        <!-- Left Sidebar (Inputs & Controls) -->
+        <aside class="w-96 bg-slate-900 text-slate-100 flex flex-col h-full shrink-0 border-r border-slate-800">
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h2 id="sidebar-title" class="text-sm font-semibold tracking-wider uppercase text-slate-400">Kreuzworträtsel</h2>
+                <span id="question-count" class="text-xs text-slate-400">0 / 50 Fragen</span>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 space-y-5">
+                
+                <!-- Kreuzworträtsel Spezifisch: Lösungswort Input -->
+                <div id="crossword-options">
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Lösungswort (Optional)</label>
+                    <input type="text" id="target-solution-word" placeholder="z.B. SOMMERFEST" oninput="this.value = this.value.toUpperCase()" class="w-full bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase">
+                </div>
+
+                <!-- Suchsel Spezifisch: Richtungen & Modus -->
+                <div id="wordsearch-options" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-2">Erlaubte Richtungen (mind. 1)</label>
+                        <div class="grid grid-cols-1 gap-1.5 text-xs text-slate-300">
+                            <label class="flex items-center space-x-2 cursor-pointer bg-slate-800/60 p-1.5 rounded border border-slate-700">
+                                <input type="checkbox" id="dir-ltr" checked class="rounded bg-slate-900 border-slate-700 text-blue-600">
+                                <span>Von links nach rechts (➡️)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer bg-slate-800/60 p-1.5 rounded border border-slate-700">
+                                <input type="checkbox" id="dir-rtl" class="rounded bg-slate-900 border-slate-700 text-blue-600">
+                                <span>Von rechts nach links (⬅️)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer bg-slate-800/60 p-1.5 rounded border border-slate-700">
+                                <input type="checkbox" id="dir-ttb" checked class="rounded bg-slate-900 border-slate-700 text-blue-600">
+                                <span>Von oben nach unten (⬇️)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer bg-slate-800/60 p-1.5 rounded border border-slate-700">
+                                <input type="checkbox" id="dir-btt" class="rounded bg-slate-900 border-slate-700 text-blue-600">
+                                <span>Von unten nach oben (⬆️)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer bg-slate-800/60 p-1.5 rounded border border-slate-700">
+                                <input type="checkbox" id="dir-diag" class="rounded bg-slate-900 border-slate-700 text-blue-600">
+                                <span>Diagonal (↘️)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Mode Toggle (Fragen + Antworten vs. Nur Antworten) -->
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-2">Anzeige-Modus</label>
+                        <div class="bg-slate-800 p-1 rounded-lg flex text-xs font-medium text-slate-300 border border-slate-700">
+                            <button id="ws-mode-qa" onclick="setWordSearchMode('qa')" class="flex-1 py-1.5 rounded-md bg-slate-700 text-white transition text-center">Fragen & Antworten</button>
+                            <button id="ws-mode-answers" onclick="setWordSearchMode('answers')" class="flex-1 py-1.5 rounded-md hover:text-white transition text-center">Nur Antworten</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Warning Message Box -->
+                <div id="solution-warning" class="hidden p-3 bg-amber-950/60 border border-amber-600/50 rounded-md text-amber-200 text-xs leading-relaxed"></div>
+
+                <!-- Questions List Container -->
+                <div>
+                    <label id="input-list-label" class="block text-xs font-medium text-slate-300 mb-2">Fragen & Antworten</label>
+                    <div id="questions-container" class="space-y-2">
+                        <!-- Dynamic Input Rows -->
+                    </div>
+                </div>
+
+                <button onclick="addQuestionRow()" id="add-btn" class="w-full border border-dashed border-slate-700 hover:border-slate-500 hover:bg-slate-800/50 text-slate-400 hover:text-slate-200 text-xs py-2 rounded-md transition flex items-center justify-center gap-1">
+                    + Zeile hinzufügen
+                </button>
+            </div>
+
+            <!-- Generate Button Footer -->
+            <div class="p-4 border-t border-slate-800 bg-slate-900">
+                <button onclick="generatePuzzle()" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium text-sm py-2.5 rounded-md transition text-center border border-slate-700">
+                    Rätsel generieren
+                </button>
+            </div>
+        </aside>
+
+        <!-- Right Preview Canvas (A4 Landscape) -->
+        <main class="flex-1 bg-gray-200/70 p-6 overflow-auto flex justify-center items-start">
+            
+            <!-- A4 Sheet Container -->
+            <div id="pdf-content" class="page-a4-landscape shadow-xl p-8 flex flex-col justify-between rounded-sm">
+                
+                <!-- Page Top Header -->
+                <div class="flex justify-end items-center mb-4">
+                    <span id="sheet-type-label" class="text-xs font-bold text-black uppercase tracking-wider">Rätselblatt</span>
+                </div>
+
+                <!-- Main Grid & Clues Area -->
+                <div class="flex-1 flex gap-6 min-h-0 items-start">
+                    
+                    <!-- Grid Container (Left Side) -->
+                    <div class="w-3/5 h-full flex items-center justify-center p-2">
+                        <div id="grid-container" class="grid gap-1">
+                            <!-- Cells dynamically inserted -->
+                        </div>
+                    </div>
+
+                    <!-- Questions / Clues List (Right Side) -->
+                    <div class="w-2/5 h-full overflow-hidden flex flex-col border-l border-gray-200 pl-6">
+                        <div id="clues-list" class="text-xs text-gray-800 space-y-2 overflow-y-auto pr-2">
+                            <!-- Clues inserted dynamically -->
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Solution Word Bottom Display Box (Nur bei Kreuzworträtsel) -->
+                <div id="solution-box" class="mt-4 pt-3 border-t border-gray-300 hidden">
+                    <div class="text-xs font-bold text-black mb-2 uppercase tracking-wider">Lösungswort:</div>
+                    <div id="solution-cells-container" class="flex flex-wrap gap-2">
+                        <!-- Solution letters container -->
+                    </div>
+                </div>
+
+                <!-- Page Bottom Footer (3-zeilig) -->
+                <div class="mt-4 pt-2 border-t border-gray-200 flex justify-between items-end text-[10px] text-gray-600 leading-tight">
+                    <div class="flex flex-col space-y-0.5">
+                        <span>Erstellt mit <strong class="text-gray-800">Noahwords</strong></span>
+                        <span>by Noah Dorsner</span>
+                        <span class="text-gray-400">https://noahproduktion.github.io/Noahscreenboard/noahwords.html</span>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modal Fenster für Weiterleitung -->
+    <div id="nav-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden flex items-center justify-center z-50 transition-opacity">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-96 max-w-[90%] border border-gray-100 transform scale-100 text-center">
+            <h3 class="text-lg font-bold text-gray-900 mb-2">Zur vorherigen Seite zurückkehren?</h3>
+            <p class="text-xs text-gray-600 mb-6">Möchtest du die Noahwords-Anwendung verlassen und zur Hauptseite zurückkehren?</p>
+            <div class="flex justify-center space-x-3">
+                <button onclick="closeNavModal()" class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 transition">Abbrechen</button>
+                <button onclick="confirmNavigation()" class="px-4 py-2 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 transition">Ja</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const MAX_QUESTIONS = 50;
+        let appMode = 'crossword'; // 'crossword' or 'wordsearch'
+        let wordSearchSubMode = 'qa'; // 'qa' or 'answers'
+        let currentViewMode = 'puzzle'; // 'puzzle' or 'solution'
+        
+        let questionsData = [];
+        let generatedGrid = null;
+        let solutionWordMapping = [];
+
+        window.onload = () => {
+            addQuestionRow();
+        };
+
+        /* Navigation Modal */
+        function openNavModal() { document.getElementById('nav-modal').classList.remove('hidden'); }
+        function closeNavModal() { document.getElementById('nav-modal').classList.add('hidden'); }
+        function confirmNavigation() { window.location.href = "https://noahproduktion.github.io/Noahscreenboard/"; }
+
+        /* Mode Switcher Logic */
+        function setAppMode(mode) {
+            appMode = mode;
+            const cwBtn = document.getElementById('mode-crossword-btn');
+            const wsBtn = document.getElementById('mode-wordsearch-btn');
+            const sidebarTitle = document.getElementById('sidebar-title');
+            const cwOpts = document.getElementById('crossword-options');
+            const wsOpts = document.getElementById('wordsearch-options');
+
+            if (mode === 'crossword') {
+                cwBtn.className = "px-3 py-1 rounded-md bg-white shadow-sm text-gray-900 transition";
+                wsBtn.className = "px-3 py-1 rounded-md hover:text-gray-900 transition";
+                sidebarTitle.innerText = "Kreuzworträtsel";
+                cwOpts.classList.remove('hidden');
+                wsOpts.classList.add('hidden');
+            } else {
+                wsBtn.className = "px-3 py-1 rounded-md bg-white shadow-sm text-gray-900 transition";
+                cwBtn.className = "px-3 py-1 rounded-md hover:text-gray-900 transition";
+                sidebarTitle.innerText = "Suchsel";
+                cwOpts.classList.add('hidden');
+                wsOpts.classList.remove('hidden');
+            }
+            updateInputLabels();
+            generatePuzzle();
+        }
+
+        function setWordSearchMode(subMode) {
+            wordSearchSubMode = subMode;
+            const qaBtn = document.getElementById('ws-mode-qa');
+            const ansBtn = document.getElementById('ws-mode-answers');
+
+            if (subMode === 'qa') {
+                qaBtn.className = "flex-1 py-1.5 rounded-md bg-slate-700 text-white transition text-center";
+                ansBtn.className = "flex-1 py-1.5 rounded-md hover:text-white transition text-center";
+            } else {
+                ansBtn.className = "flex-1 py-1.5 rounded-md bg-slate-700 text-white transition text-center";
+                qaBtn.className = "flex-1 py-1.5 rounded-md hover:text-white transition text-center";
+            }
+            updateInputLabels();
+        }
+
+        function updateInputLabels() {
+            const container = document.getElementById('questions-container');
+            const listLabel = document.getElementById('input-list-label');
+
+            if (appMode === 'wordsearch' && wordSearchSubMode === 'answers') {
+                listLabel.innerText = "Antworten / Wörter";
+                container.querySelectorAll('.q-input').forEach(el => el.classList.add('hidden'));
+            } else {
+                listLabel.innerText = "Fragen & Antworten";
+                container.querySelectorAll('.q-input').forEach(el => el.classList.remove('hidden'));
+            }
+        }
+
+        function addQuestionRow(q = "", a = "") {
+            const container = document.getElementById('questions-container');
+            if (container.children.length >= MAX_QUESTIONS) return;
+
+            const row = document.createElement('div');
+            row.className = "flex gap-1.5 items-center bg-slate-800/60 p-1.5 rounded border border-slate-700/50";
+            
+            const hideQ = (appMode === 'wordsearch' && wordSearchSubMode === 'answers') ? 'hidden' : '';
+
+            row.innerHTML = `
+                <input type="text" placeholder="Frage" value="${q}" class="q-input flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 ${hideQ}">
+                <input type="text" placeholder="Antwort / Wort" value="${a}" oninput="this.value = this.value.toUpperCase()" class="a-input flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 uppercase">
+                <button onclick="removeQuestionRow(this)" class="text-slate-500 hover:text-red-400 p-1 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            `;
+            container.appendChild(row);
+            updateQuestionCount();
+        }
+
+        function removeQuestionRow(btn) {
+            btn.closest('div').remove();
+            updateQuestionCount();
+        }
+
+        function updateQuestionCount() {
+            const count = document.getElementById('questions-container').children.length;
+            document.getElementById('question-count').innerText = `${count} / ${MAX_QUESTIONS} Zeilen`;
+            document.getElementById('add-btn').style.display = count >= MAX_QUESTIONS ? 'none' : 'flex';
+        }
+
+        function readInputs() {
+            const rows = document.querySelectorAll('#questions-container > div');
+            const data = [];
+            rows.forEach((row, idx) => {
+                const qInput = row.querySelector('.q-input');
+                const aInput = row.querySelector('.a-input');
+                const q = qInput ? qInput.value.trim() : '';
+                const a = aInput ? aInput.value.trim().toUpperCase().replace(/[^A-ZÄÖÜß]/g, '') : '';
+
+                if (appMode === 'wordsearch' && wordSearchSubMode === 'answers') {
+                    if (a) data.push({ id: idx + 1, question: '', answer: a });
+                } else {
+                    if (q && a) data.push({ id: idx + 1, question: q, answer: a });
+                }
+            });
+            return data;
+        }
+
+        function setViewMode(mode) {
+            currentViewMode = mode;
+            const pBtn = document.getElementById('view-puzzle-btn');
+            const sBtn = document.getElementById('view-solution-btn');
+            const label = document.getElementById('sheet-type-label');
+
+            if (mode === 'puzzle') {
+                pBtn.className = "px-3 py-1.5 rounded-md bg-white shadow-sm text-gray-900 transition";
+                sBtn.className = "px-3 py-1.5 rounded-md hover:text-gray-900 transition";
+                label.innerText = "Rätselblatt";
+            } else {
+                sBtn.className = "px-3 py-1.5 rounded-md bg-white shadow-sm text-gray-900 transition";
+                pBtn.className = "px-3 py-1.5 rounded-md hover:text-gray-900 transition";
+                label.innerText = "Lösungsblatt";
+            }
+            renderGrid();
+            renderSolutionBox();
+        }
+
+        function generatePuzzle() {
+            if (appMode === 'crossword') {
+                generateCrossword();
+            } else {
+                generateWordSearch();
+            }
+        }
+
+        /* ---------------- KREUZWORTRÄTSEL LOGIK ---------------- */
+        function generateCrossword() {
+            questionsData = readInputs();
+            if (questionsData.length === 0) {
+                renderEmptyGrid();
+                return;
+            }
+
+            const GRID_SIZE = 19;
+            let grid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+            let wordsToPlace = [...questionsData].sort((a, b) => b.answer.length - a.answer.length);
+            let placedWords = [];
+
+            const first = wordsToPlace.shift();
+            const startRow = Math.floor(GRID_SIZE / 2);
+            const startCol = Math.floor((GRID_SIZE - first.answer.length) / 2);
+            placeWordCW(grid, first, startRow, startCol, 'horizontal', placedWords);
+
+            for (let wordObj of wordsToPlace) {
+                let bestPlacement = null;
+                let maxIntersections = 0;
+
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        for (let dir of ['horizontal', 'vertical']) {
+                            if (canPlaceWordCW(grid, wordObj.answer, r, c, dir, GRID_SIZE)) {
+                                let intersections = countIntersectionsCW(grid, wordObj.answer, r, c, dir);
+                                if (intersections > maxIntersections) {
+                                    maxIntersections = intersections;
+                                    bestPlacement = { r, c, dir };
+                                } else if (!bestPlacement && intersections >= 0) {
+                                    bestPlacement = { r, c, dir };
+                                }
+                            }
+                        }
+                    }
+                }
+                if (bestPlacement) {
+                    placeWordCW(grid, wordObj, bestPlacement.r, bestPlacement.c, bestPlacement.dir, placedWords);
+                }
+            }
+
+            let currentNum = 1;
+            placedWords.sort((a, b) => (a.row - b.row) || (a.col - b.col));
+            placedWords.forEach(pw => pw.number = currentNum++);
+
+            let minR = GRID_SIZE, maxR = 0, minC = GRID_SIZE, maxC = 0;
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (grid[r][c]) {
+                        if (r < minR) minR = r; if (r > maxR) maxR = r;
+                        if (c < minC) minC = c; if (c > maxC) maxC = c;
+                    }
+                }
+            }
+            if (placedWords.length === 0) { minR = 0; maxR = 4; minC = 0; maxC = 4; }
+
+            generatedGrid = { cells: grid, placedWords, bounds: { minR, maxR, minC, maxC } };
+            processSolutionWord();
+            renderGrid();
+            renderClues();
+        }
+
+        function canPlaceWordCW(grid, word, r, c, dir, size) {
+            if (dir === 'horizontal') {
+                if (c + word.length > size) return false;
+                if (c > 0 && grid[r][c - 1]) return false;
+                if (c + word.length < size && grid[r][c + word.length]) return false;
+                for (let i = 0; i < word.length; i++) {
+                    let cell = grid[r][c + i];
+                    if (cell && cell.char !== word[i]) return false;
+                    if (!cell) {
+                        if (r > 0 && grid[r - 1][c + i]) return false;
+                        if (r < size - 1 && grid[r + 1][c + i]) return false;
+                    }
+                }
+            } else {
+                if (r + word.length > size) return false;
+                if (r > 0 && grid[r - 1][c]) return false;
+                if (r + word.length < size && grid[r + word.length][c]) return false;
+                for (let i = 0; i < word.length; i++) {
+                    let cell = grid[r + i][c];
+                    if (cell && cell.char !== word[i]) return false;
+                    if (!cell) {
+                        if (c > 0 && grid[r + i][c - 1]) return false;
+                        if (c < size - 1 && grid[r + i][c + 1]) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function countIntersectionsCW(grid, word, r, c, dir) {
+            let count = 0;
+            for (let i = 0; i < word.length; i++) {
+                let cell = (dir === 'horizontal') ? grid[r][c + i] : grid[r + i][c];
+                if (cell && cell.char === word[i]) count++;
+            }
+            return count;
+        }
+
+        function placeWordCW(grid, wordObj, r, c, dir, placedWords) {
+            for (let i = 0; i < wordObj.answer.length; i++) {
+                let currR = dir === 'horizontal' ? r : r + i;
+                let currC = dir === 'horizontal' ? c + i : c;
+                if (!grid[currR][currC]) {
+                    grid[currR][currC] = { char: wordObj.answer[i], solIndex: null };
+                }
+            }
+            placedWords.push({ ...wordObj, row: r, col: c, dir });
+        }
+
+        /* ---------------- SUCHSEL LOGIK ---------------- */
+        function generateWordSearch() {
+            questionsData = readInputs();
+            if (questionsData.length === 0) {
+                renderEmptyGrid();
+                return;
+            }
+
+            let allowedDirs = [];
+            if (document.getElementById('dir-ltr').checked) allowedDirs.push({ dr: 0, dc: 1, arrow: '►' });
+            if (document.getElementById('dir-rtl').checked) allowedDirs.push({ dr: 0, dc: -1, arrow: '◄' });
+            if (document.getElementById('dir-ttb').checked) allowedDirs.push({ dr: 1, dc: 0, arrow: '▼' });
+            if (document.getElementById('dir-btt').checked) allowedDirs.push({ dr: -1, dc: 0, arrow: '▲' });
+            if (document.getElementById('dir-diag').checked) allowedDirs.push({ dr: 1, dc: 1, arrow: '↘' });
+
+            if (allowedDirs.length === 0) {
+                alert("Bitte wähle mindestens eine erlaubte Richtung für das Suchsel aus!");
+                return;
+            }
+
+            const SIZE = 14;
+            let grid = Array(SIZE).fill(null).map(() => Array(SIZE).fill(null).map(() => ({ char: '', isSolution: false, numStarts: [] })));
+            let placedWords = [];
+
+            let words = [...questionsData].sort((a, b) => b.answer.length - a.answer.length);
+            let numCounter = 1;
+
+            for (let wordObj of words) {
+                let w = wordObj.answer;
+                let placed = false;
+                let attempts = 0;
+
+                while (!placed && attempts < 200) {
+                    attempts++;
+                    let dir = allowedDirs[Math.floor(Math.random() * allowedDirs.length)];
+                    let startR = Math.floor(Math.random() * SIZE);
+                    let startC = Math.floor(Math.random() * SIZE);
+
+                    let endR = startR + dir.dr * (w.length - 1);
+                    let endC = startC + dir.dc * (w.length - 1);
+
+                    if (endR >= 0 && endR < SIZE && endC >= 0 && endC < SIZE) {
+                        let canFit = true;
+                        for (let i = 0; i < w.length; i++) {
+                            let currChar = grid[startR + dir.dr * i][startC + dir.dc * i].char;
+                            if (currChar !== '' && currChar !== w[i]) {
+                                canFit = false;
+                                break;
+                            }
+                        }
+
+                        if (canFit) {
+                            grid[startR][startC].numStarts.push({ num: numCounter, arrow: dir.arrow });
+                            for (let i = 0; i < w.length; i++) {
+                                let r = startR + dir.dr * i;
+                                let c = startC + dir.dc * i;
+                                grid[r][c].char = w[i];
+                                grid[r][c].isSolution = true;
+                            }
+                            placedWords.push({ ...wordObj, number: numCounter });
+                            numCounter++;
+                            placed = true;
+                        }
+                    }
+                }
+            }
+
+            const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            for (let r = 0; r < SIZE; r++) {
+                for (let c = 0; c < SIZE; c++) {
+                    if (grid[r][c].char === '') {
+                        grid[r][c].char = alphabet[Math.floor(Math.random() * alphabet.length)];
+                    }
+                }
+            }
+
+            generatedGrid = {
+                cells: grid,
+                placedWords,
+                bounds: { minR: 0, maxR: SIZE - 1, minC: 0, maxC: SIZE - 1 }
+            };
+
+            document.getElementById('solution-box').classList.add('hidden');
+            document.getElementById('solution-warning').classList.add('hidden');
+
+            renderGrid();
+            renderClues();
+        }
+
+        function processSolutionWord() {
+            const targetWord = document.getElementById('target-solution-word').value.trim().toUpperCase();
+            const warningBox = document.getElementById('solution-warning');
+            const solutionBox = document.getElementById('solution-box');
+
+            if (!targetWord || appMode !== 'crossword') {
+                warningBox.classList.add('hidden');
+                solutionBox.classList.add('hidden');
+                return;
+            }
+
+            const { cells, bounds } = generatedGrid;
+            for (let r = bounds.minR; r <= bounds.maxR; r++) {
+                for (let c = bounds.minC; c <= bounds.maxC; c++) {
+                    if (cells[r][c]) cells[r][c].solIndex = null;
+                }
+            }
+
+            let availableCells = [];
+            for (let r = bounds.minR; r <= bounds.maxR; r++) {
+                for (let c = bounds.minC; c <= bounds.maxC; c++) {
+                    if (cells[r][c]) {
+                        availableCells.push({ r, c, char: cells[r][c].char, used: false });
+                    }
+                }
+            }
+
+            solutionWordMapping = [];
+            let missingIndices = [];
+
+            for (let i = 0; i < targetWord.length; i++) {
+                let char = targetWord[i];
+                let foundCell = availableCells.find(cell => cell.char === char && !cell.used);
+
+                if (foundCell) {
+                    foundCell.used = true;
+                    cells[foundCell.r][foundCell.c].solIndex = i + 1;
+                    solutionWordMapping.push({ char, num: i + 1, prefilled: false });
+                } else {
+                    missingIndices.push(i + 1);
+                    solutionWordMapping.push({ char, num: i + 1, prefilled: true });
+                }
+            }
+
+            if (missingIndices.length > 0) {
+                warningBox.innerHTML = `<strong>Hinweis:</strong> Für Position(en) <strong>${missingIndices.join(', ')}</strong> des Lösungsworts war kein passender Buchstabe im Rätsel. Diese Buchstaben werden automatisch vorgegeben.`;
+                warningBox.classList.remove('hidden');
+            } else {
+                warningBox.classList.add('hidden');
+            }
+
+            renderSolutionBox();
+            solutionBox.classList.remove('hidden');
+        }
+
+        function renderEmptyGrid() {
+            const container = document.getElementById('grid-container');
+            container.innerHTML = '<div class="text-xs text-gray-400">Bitte mindestens eine Zeile ausfüllen.</div>';
+            document.getElementById('clues-list').innerHTML = '';
+        }
+
+        function renderGrid() {
+            const container = document.getElementById('grid-container');
+            container.innerHTML = '';
+
+            if (!generatedGrid) return;
+            const { cells, placedWords, bounds } = generatedGrid;
+
+            const colsCount = bounds.maxC - bounds.minC + 1;
+            container.style.gridTemplateColumns = `repeat(${colsCount}, 32px)`;
+
+            if (appMode === 'crossword') {
+                let cellStarts = {};
+                placedWords.forEach(pw => {
+                    const key = `${pw.row}_${pw.col}`;
+                    if (!cellStarts[key]) cellStarts[key] = [];
+                    cellStarts[key].push({
+                        num: pw.number,
+                        arrow: pw.dir === 'horizontal' ? '&#9654;' : '&#9660;'
+                    });
+                });
+
+                for (let r = bounds.minR; r <= bounds.maxR; r++) {
+                    for (let c = bounds.minC; c <= bounds.maxC; c++) {
+                        const cellData = cells[r][c];
+                        const cellDiv = document.createElement('div');
+                        cellDiv.className = 'grid-cell';
+
+                        if (cellData) {
+                            cellDiv.classList.add('cw-cell-active');
+
+                            const key = `${r}_${c}`;
+                            if (cellStarts[key]) {
+                                const numContainer = document.createElement('div');
+                                numContainer.className = 'cw-num-container';
+                                cellStarts[key].forEach(item => {
+                                    const itemSpan = document.createElement('span');
+                                    itemSpan.className = 'cw-num-item';
+                                    itemSpan.innerHTML = `${item.num}<span class="cw-arrow-triangle">${item.arrow}</span>`;
+                                    numContainer.appendChild(itemSpan);
+                                });
+                                cellDiv.appendChild(numContainer);
+                            }
+
+                            if (cellData.solIndex) {
+                                const solSpan = document.createElement('span');
+                                solSpan.className = 'cw-sol-num';
+                                solSpan.innerText = cellData.solIndex;
+                                cellDiv.appendChild(solSpan);
+                            }
+
+                            const letterSpan = document.createElement('span');
+                            letterSpan.className = 'cell-letter';
+                            letterSpan.innerText = (currentViewMode === 'solution') ? cellData.char : '';
+                            cellDiv.appendChild(letterSpan);
+                        }
+                        container.appendChild(cellDiv);
+                    }
+                }
+            } else {
+                for (let r = bounds.minR; r <= bounds.maxR; r++) {
+                    for (let c = bounds.minC; c <= bounds.maxC; c++) {
+                        const cellData = cells[r][c];
+                        const cellDiv = document.createElement('div');
+                        cellDiv.className = 'grid-cell border border-gray-300 rounded flex items-center justify-center bg-white';
+
+                        if (currentViewMode === 'solution' && cellData.numStarts && cellData.numStarts.length > 0) {
+                            const numContainer = document.createElement('div');
+                            numContainer.className = 'cw-num-container';
+                            cellData.numStarts.forEach(item => {
+                                const itemSpan = document.createElement('span');
+                                itemSpan.className = 'cw-num-item';
+                                itemSpan.innerHTML = `${item.num}<span class="cw-arrow-triangle">${item.arrow}</span>`;
+                                numContainer.appendChild(itemSpan);
+                            });
+                            cellDiv.appendChild(numContainer);
+                        }
+
+                        const letterSpan = document.createElement('span');
+                        letterSpan.className = 'cell-letter';
+                        letterSpan.innerText = cellData.char;
+
+                        if (currentViewMode === 'solution' && cellData.isSolution) {
+                            letterSpan.classList.add('search-found-solution');
+                        }
+
+                        cellDiv.appendChild(letterSpan);
+                        container.appendChild(cellDiv);
+                    }
+                }
+            }
+        }
+
+        function renderClues() {
+            const cluesContainer = document.getElementById('clues-list');
+            cluesContainer.innerHTML = '';
+
+            if (!generatedGrid) return;
+
+            const sortedWords = [...generatedGrid.placedWords].sort((a, b) => a.number - b.number);
+
+            sortedWords.forEach(item => {
+                const clueDiv = document.createElement('div');
+                clueDiv.className = "flex gap-2 leading-snug items-start";
+
+                if (appMode === 'crossword' || (appMode === 'wordsearch' && wordSearchSubMode === 'qa')) {
+                    clueDiv.innerHTML = `
+                        <span class="font-bold text-black bg-gray-100 px-1.5 py-0.5 rounded text-[11px] shrink-0 border border-gray-300">${item.number}.</span>
+                        <span class="text-gray-900 text-xs pt-0.5">${item.question}</span>
+                    `;
+                } else {
+                    clueDiv.innerHTML = `
+                        <span class="font-bold text-black bg-gray-100 px-1.5 py-0.5 rounded text-[11px] shrink-0 border border-gray-300">${item.number}.</span>
+                        <span class="text-gray-900 text-xs font-bold tracking-wider pt-0.5">${item.answer}</span>
+                    `;
+                }
+                cluesContainer.appendChild(clueDiv);
+            });
+        }
+
+        function renderSolutionBox() {
+            const container = document.getElementById('solution-cells-container');
+            container.innerHTML = '';
+
+            if (appMode !== 'crossword') return;
+
+            solutionWordMapping.forEach(item => {
+                const box = document.createElement('div');
+                box.className = "flex flex-col items-center";
+                
+                const charBox = document.createElement('div');
+                charBox.className = "w-8 h-8 border-2 border-black rounded-md flex items-center justify-center font-extrabold text-sm bg-white uppercase text-black";
+                
+                if (currentViewMode === 'solution' || item.prefilled) {
+                    charBox.innerText = item.char;
+                    if (item.prefilled && currentViewMode === 'puzzle') {
+                        charBox.classList.add('text-gray-400', 'bg-gray-100', 'border-gray-400');
+                    }
+                } else {
+                    charBox.innerText = '';
+                }
+
+                const numLabel = document.createElement('span');
+                numLabel.className = "text-[10px] font-bold text-sky-600 mt-1";
+                numLabel.innerText = item.num;
+
+                box.appendChild(charBox);
+                box.appendChild(numLabel);
+                container.appendChild(box);
+            });
+        }
+
+        function exportPDF(mode) {
+            const previousMode = currentViewMode;
+            setViewMode(mode);
+
+            const element = document.getElementById('pdf-content');
+            const prefix = appMode === 'crossword' ? 'Noahwords-Kreuzwortraetsel' : 'Noahwords-Suchsel';
+            const filename = mode === 'puzzle' ? `${prefix}-Raetsel.pdf` : `${prefix}-Loesung.pdf`;
+
+            const opt = {
+                margin: 0,
+                filename: filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            };
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                if (previousMode !== mode) {
+                    setViewMode(previousMode);
+                }
+            });
+        }
+    </script>
+</body>
+</html>
